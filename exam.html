@@ -590,22 +590,76 @@
             const lines = csv.split('\n').filter(line => line.trim());
             const questions = [];
             
+            // Parse header to determine format
+            const header = parseCSVLine(lines[0]);
+            const hasTypeColumn = header.includes('Type');
+            const hasOptionsColumn = header.some(h => h.includes('Options') || h.includes('Context'));
+            
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i];
                 const parts = parseCSVLine(line);
                 
-                if (parts.length >= 7) {
-                    questions.push({
-                        q: parseInt(parts[0]) || i,
-                        chapter: parts[1],
-                        question: parts[2],
-                        options: [parts[3], parts[4], parts[5], parts[6]],
-                        answer: parts[7]
-                    });
+                if (parts.length < 4) continue;
+                
+                let questionObj = {
+                    q: parseInt(parts[0]) || i,
+                    chapter: parts[1],
+                    type: 'MCQ', // default
+                    question: '',
+                    options: [],
+                    answer: ''
+                };
+                
+                if (hasTypeColumn) {
+                    // Format: Q#, Chapter, Type, Question, Options/Context, Answer
+                    questionObj.type = parts[2];
+                    questionObj.question = parts[3];
+                    
+                    if (questionObj.type === 'Fill-in') {
+                        // Fill-in question: show hint and expect text input
+                        questionObj.hint = parts[4]; // The hint/context
+                        questionObj.answer = parts[5];
+                        questionObj.options = []; // No options for fill-in
+                    } else {
+                        // MCQ: parse combined options string like "A) ... B) ... C) ... D) ..."
+                        const optionsString = parts[4];
+                        questionObj.options = parseOptionsString(optionsString);
+                        questionObj.answer = parts[5];
+                    }
+                } else if (parts.length >= 9) {
+                    // Format: Q#, Chapter, Type, Question, Option A, Option B, Option C, Option D, Answer
+                    questionObj.type = parts[2];
+                    questionObj.question = parts[3];
+                    questionObj.options = [parts[4], parts[5], parts[6], parts[7]];
+                    questionObj.answer = parts[8];
+                } else if (parts.length >= 8) {
+                    // Old format: Q#, Chapter, Question, Option A, Option B, Option C, Option D, Answer
+                    questionObj.question = parts[2];
+                    questionObj.options = [parts[3], parts[4], parts[5], parts[6]];
+                    questionObj.answer = parts[7];
                 }
+                
+                questions.push(questionObj);
             }
             
             return questions;
+        }
+        
+        function parseOptionsString(optionsStr) {
+            // Parse string like "A) Option 1B) Option 2C) Option 3D) Option 4"
+            // into array ["Option 1", "Option 2", "Option 3", "Option 4"]
+            const options = [];
+            const regex = /[A-D]\)\s*([^A-D]*?)(?=[A-D]\)|$)/g;
+            let match;
+            
+            while ((match = regex.exec(optionsStr)) !== null) {
+                const option = match[1].trim();
+                if (option) {
+                    options.push(option);
+                }
+            }
+            
+            return options;
         }
 
         function parseCSVLine(line) {
@@ -785,34 +839,63 @@
             const question = filteredQuestions[currentQuestionIndex];
             document.getElementById('questionText').textContent = question.question;
             document.getElementById('chapterInfo').textContent = question.chapter;
-            document.getElementById('questionNumber').textContent = `Q${question.q}`;
+            document.getElementById('questionNumber').textContent = `Q${question.q} [${question.type}]`;
             document.getElementById('questionCounter').textContent = `Question ${currentQuestionIndex + 1} of ${filteredQuestions.length}`;
             
-            const answered = userAnswers.filter(a => a !== null).length;
+            const answered = userAnswers.filter(a => a !== null && a !== undefined).length;
             document.getElementById('scoreCounter').textContent = `Score: ${correctAnswers}/${answered}`;
             
             const optionsContainer = document.getElementById('optionsContainer');
             optionsContainer.innerHTML = '';
             
-            question.options.forEach((option, index) => {
-                const optionDiv = document.createElement('div');
-                optionDiv.className = 'option';
-                optionDiv.textContent = `${String.fromCharCode(65 + index)}. ${option}`;
-                optionDiv.onclick = () => selectOption(index);
-                optionsContainer.appendChild(optionDiv);
-            });
+            if (question.type === 'Fill-in') {
+                // Create text input for fill-in questions
+                const hintDiv = document.createElement('div');
+                hintDiv.style.cssText = 'background: #f0f7ff; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 14px; color: #666;';
+                hintDiv.innerHTML = `<strong>Hint:</strong> ${question.hint || 'Type your answer below'}`;
+                optionsContainer.appendChild(hintDiv);
+                
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = 'fillInAnswer';
+                input.placeholder = 'Type your answer here...';
+                input.style.cssText = 'width: 100%; padding: 15px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 16px;';
+                
+                // Pre-fill if already answered
+                if (userAnswers[currentQuestionIndex] !== undefined && userAnswers[currentQuestionIndex] !== null) {
+                    input.value = userAnswers[currentQuestionIndex];
+                }
+                
+                optionsContainer.appendChild(input);
+                selectedAnswer = input.value;
+                
+                input.addEventListener('input', (e) => {
+                    selectedAnswer = e.target.value;
+                });
+            } else {
+                // Create option buttons for MCQ
+                question.options.forEach((option, index) => {
+                    const optionDiv = document.createElement('div');
+                    optionDiv.className = 'option';
+                    optionDiv.textContent = `${String.fromCharCode(65 + index)}. ${option}`;
+                    optionDiv.onclick = () => selectOption(index);
+                    optionsContainer.appendChild(optionDiv);
+                });
+            }
             
             document.getElementById('feedback').innerHTML = '';
             document.getElementById('submitBtn').style.display = 'inline-block';
             document.getElementById('nextBtn').style.display = 'none';
-            selectedAnswer = null;
             
-            if (userAnswers[currentQuestionIndex] !== undefined) {
-                const userAnswer = userAnswers[currentQuestionIndex];
-                if (userAnswer !== null) {
-                    selectOption(userAnswer, true);
-                    checkAnswer(true);
+            if (question.type !== 'Fill-in') {
+                selectedAnswer = null;
+            }
+            
+            if (userAnswers[currentQuestionIndex] !== undefined && userAnswers[currentQuestionIndex] !== null) {
+                if (question.type === 'MCQ') {
+                    selectOption(userAnswers[currentQuestionIndex], true);
                 }
+                checkAnswer(true);
             }
         }
 
@@ -830,46 +913,88 @@
         }
 
         function checkAnswer(isReview = false) {
-            if (selectedAnswer === null && !isReview) return;
+            if ((selectedAnswer === null || selectedAnswer === '') && !isReview) return;
             
             const question = filteredQuestions[currentQuestionIndex];
-            const correctIndex = question.answer.charCodeAt(0) - 65;
-            const options = document.querySelectorAll('.option');
-            
-            if (!isReview) {
-                userAnswers[currentQuestionIndex] = selectedAnswer;
-            }
-            
-            const isCorrect = selectedAnswer === correctIndex;
-            
-            if (!isReview && isCorrect) {
-                correctAnswers++;
-            }
-            
-            options.forEach((opt, i) => {
-                opt.style.pointerEvents = 'none';
-                if (i === correctIndex) {
-                    opt.classList.add('correct');
-                } else if (i === selectedAnswer && !isCorrect) {
-                    opt.classList.add('incorrect');
-                } else {
-                    opt.classList.add('faded');
-                }
-            });
-            
             const feedback = document.getElementById('feedback');
-            if (isCorrect) {
-                feedback.className = 'feedback correct';
-                feedback.textContent = '✓ Correct!';
+            
+            if (question.type === 'Fill-in') {
+                // Handle fill-in questions
+                const userInput = isReview ? userAnswers[currentQuestionIndex] : selectedAnswer;
+                
+                if (!isReview) {
+                    userAnswers[currentQuestionIndex] = userInput;
+                }
+                
+                // Normalize answers for comparison (case-insensitive, trim whitespace)
+                const correctAnswer = question.answer.toLowerCase().trim();
+                const userAnswer = (userInput || '').toLowerCase().trim();
+                
+                // Check for partial matches and common variations
+                const isCorrect = correctAnswer === userAnswer || 
+                                correctAnswer.includes(userAnswer) || 
+                                userAnswer.includes(correctAnswer) ||
+                                // Remove parentheses for comparison
+                                correctAnswer.replace(/[()]/g, '') === userAnswer.replace(/[()]/g, '');
+                
+                if (!isReview && isCorrect) {
+                    correctAnswers++;
+                }
+                
+                // Disable input
+                const input = document.getElementById('fillInAnswer');
+                if (input) {
+                    input.disabled = true;
+                    input.style.borderColor = isCorrect ? '#4caf50' : '#f44336';
+                    input.style.background = isCorrect ? '#f1f8f4' : '#fff5f5';
+                }
+                
+                if (isCorrect) {
+                    feedback.className = 'feedback correct';
+                    feedback.textContent = `✓ Correct! The answer is: ${question.answer}`;
+                } else {
+                    feedback.className = 'feedback incorrect';
+                    feedback.textContent = `✗ Incorrect. The correct answer is: ${question.answer}`;
+                }
             } else {
-                feedback.className = 'feedback incorrect';
-                feedback.textContent = `✗ Incorrect. The correct answer is ${question.answer}.`;
+                // Handle MCQ questions
+                const correctIndex = question.answer.charCodeAt(0) - 65;
+                const options = document.querySelectorAll('.option');
+                
+                if (!isReview) {
+                    userAnswers[currentQuestionIndex] = selectedAnswer;
+                }
+                
+                const isCorrect = selectedAnswer === correctIndex;
+                
+                if (!isReview && isCorrect) {
+                    correctAnswers++;
+                }
+                
+                options.forEach((opt, i) => {
+                    opt.style.pointerEvents = 'none';
+                    if (i === correctIndex) {
+                        opt.classList.add('correct');
+                    } else if (i === selectedAnswer && !isCorrect) {
+                        opt.classList.add('incorrect');
+                    } else {
+                        opt.classList.add('faded');
+                    }
+                });
+                
+                if (isCorrect) {
+                    feedback.className = 'feedback correct';
+                    feedback.textContent = '✓ Correct!';
+                } else {
+                    feedback.className = 'feedback incorrect';
+                    feedback.textContent = `✗ Incorrect. The correct answer is ${question.answer}.`;
+                }
             }
             
             document.getElementById('submitBtn').style.display = 'none';
             document.getElementById('nextBtn').style.display = 'inline-block';
             
-            const answered = userAnswers.filter(a => a !== null).length;
+            const answered = userAnswers.filter(a => a !== null && a !== undefined && a !== '').length;
             document.getElementById('scoreCounter').textContent = `Score: ${correctAnswers}/${answered}`;
         }
 
@@ -931,11 +1056,23 @@
             
             chapters.forEach(chapter => {
                 const chapterQuestions = filteredQuestions.map((q, idx) => ({q, idx})).filter(({q}) => q.chapter === chapter);
-                const correct = chapterQuestions.filter(({idx}) => {
+                const correct = chapterQuestions.filter(({q, idx}) => {
                     const userAnswer = userAnswers[idx];
-                    if (userAnswer === null || userAnswer === undefined) return false;
-                    const correctIndex = filteredQuestions[idx].answer.charCodeAt(0) - 65;
-                    return userAnswer === correctIndex;
+                    if (userAnswer === null || userAnswer === undefined || userAnswer === '') return false;
+                    
+                    if (q.type === 'Fill-in') {
+                        // Normalize for comparison
+                        const correctAnswer = q.answer.toLowerCase().trim();
+                        const userAns = (userAnswer || '').toLowerCase().trim();
+                        return correctAnswer === userAns || 
+                               correctAnswer.includes(userAns) || 
+                               userAns.includes(correctAnswer) ||
+                               correctAnswer.replace(/[()]/g, '') === userAns.replace(/[()]/g, '');
+                    } else {
+                        // MCQ
+                        const correctIndex = q.answer.charCodeAt(0) - 65;
+                        return userAnswer === correctIndex;
+                    }
                 }).length;
                 
                 stats[chapter] = {
