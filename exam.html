@@ -592,6 +592,7 @@
             
             // Parse header to determine format
             const header = parseCSVLine(lines[0]);
+            const hasTypeColumn = header.some(h => h.toLowerCase().includes('type'));
             
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i];
@@ -602,40 +603,35 @@
                 let questionObj = {
                     q: parseInt(parts[0]) || i,
                     chapter: parts[1],
-                    type: 'MCQ', // default
+                    type: 'MCQ',
                     question: '',
                     options: [],
                     answer: ''
                 };
                 
-                // Detect format by checking if column 2 looks like a Type or a Question
-                const col2 = parts[2];
-                const isTypeColumn = col2 === 'MCQ' || col2 === 'Fill-in' || col2 === 'True/False';
-                
-                if (isTypeColumn && parts.length >= 6) {
-                    // Format: Q#, Chapter, Type, Question, Options/Context, Answer
+                if (hasTypeColumn && parts.length >= 6) {
+                    // Format with Type column: Q#, Chapter, Type, Question, [Options OR empty], Answer
                     questionObj.type = parts[2];
                     questionObj.question = parts[3];
                     
                     if (questionObj.type === 'Fill-in') {
-                        // Fill-in question: show hint and expect text input
-                        questionObj.hint = parts[4]; // The hint/context
-                        questionObj.answer = parts[5];
-                        questionObj.options = []; // No options for fill-in
+                        // For Fill-in: Q#, Chapter, Type, Question, [empty cols], Answer
+                        // Answer is at the last column
+                        questionObj.answer = parts[parts.length - 1];
+                        questionObj.options = [];
+                        questionObj.hint = ''; // No hint in this format
+                    } else if (parts.length >= 9) {
+                        // For MCQ: Q#, Chapter, Type, Question, OptA, OptB, OptC, OptD, Answer
+                        questionObj.options = [parts[4], parts[5], parts[6], parts[7]];
+                        questionObj.answer = parts[8];
                     } else {
-                        // MCQ: parse combined options string like "A) ... B) ... C) ... D) ..."
+                        // Fallback: combined options format
                         const optionsString = parts[4];
                         questionObj.options = parseOptionsString(optionsString);
                         questionObj.answer = parts[5];
                     }
-                } else if (parts.length >= 9 && isTypeColumn) {
-                    // Format: Q#, Chapter, Type, Question, Option A, Option B, Option C, Option D, Answer
-                    questionObj.type = parts[2];
-                    questionObj.question = parts[3];
-                    questionObj.options = [parts[4], parts[5], parts[6], parts[7]];
-                    questionObj.answer = parts[8];
                 } else if (parts.length >= 8) {
-                    // Old format: Q#, Chapter, Question, Option A, Option B, Option C, Option D, Answer
+                    // Old format without Type: Q#, Chapter, Question, OptA, OptB, OptC, OptD, Answer
                     questionObj.question = parts[2];
                     questionObj.options = [parts[3], parts[4], parts[5], parts[6]];
                     questionObj.answer = parts[7];
@@ -852,10 +848,12 @@
             
             if (question.type === 'Fill-in') {
                 // Create text input for fill-in questions
-                const hintDiv = document.createElement('div');
-                hintDiv.style.cssText = 'background: #f0f7ff; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 14px; color: #666;';
-                hintDiv.innerHTML = `<strong>Hint:</strong> ${question.hint || 'Type your answer below'}`;
-                optionsContainer.appendChild(hintDiv);
+                if (question.hint && question.hint.trim()) {
+                    const hintDiv = document.createElement('div');
+                    hintDiv.style.cssText = 'background: #f0f7ff; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 14px; color: #666;';
+                    hintDiv.innerHTML = `<strong>Hint:</strong> ${question.hint}`;
+                    optionsContainer.appendChild(hintDiv);
+                }
                 
                 const input = document.createElement('input');
                 input.type = 'text';
