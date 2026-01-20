@@ -592,8 +592,6 @@
             
             // Parse header to determine format
             const header = parseCSVLine(lines[0]);
-            const hasTypeColumn = header.includes('Type');
-            const hasOptionsColumn = header.some(h => h.includes('Options') || h.includes('Context'));
             
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i];
@@ -610,7 +608,11 @@
                     answer: ''
                 };
                 
-                if (hasTypeColumn) {
+                // Detect format by checking if column 2 looks like a Type or a Question
+                const col2 = parts[2];
+                const isTypeColumn = col2 === 'MCQ' || col2 === 'Fill-in' || col2 === 'True/False';
+                
+                if (isTypeColumn && parts.length >= 6) {
                     // Format: Q#, Chapter, Type, Question, Options/Context, Answer
                     questionObj.type = parts[2];
                     questionObj.question = parts[3];
@@ -626,7 +628,7 @@
                         questionObj.options = parseOptionsString(optionsString);
                         questionObj.answer = parts[5];
                     }
-                } else if (parts.length >= 9) {
+                } else if (parts.length >= 9 && isTypeColumn) {
                     // Format: Q#, Chapter, Type, Question, Option A, Option B, Option C, Option D, Answer
                     questionObj.type = parts[2];
                     questionObj.question = parts[3];
