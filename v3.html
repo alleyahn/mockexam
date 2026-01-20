@@ -1345,12 +1345,12 @@
             // Clear confidence buttons
             document.querySelectorAll('.confidence-btn').forEach(btn => btn.classList.remove('selected'));
             
-            // Render diagram if present
-            if (question.diagram && question.diagram.trim()) {
-                renderDiagram(question.diagram, optionsContainer);
-            }
-            
             if (question.type === 'Fill-in' || (question.type === 'MCQ' && hideOptionsMode)) {
+                // Render diagram first if present (before input field)
+                if (question.diagram && question.diagram.trim()) {
+                    renderDiagram(question.diagram, optionsContainer);
+                }
+                
                 // Create text input for fill-in questions OR hide-options mode
                 if (question.hint && question.hint.trim()) {
                     const hintDiv = document.createElement('div');
@@ -1389,6 +1389,11 @@
                     selectedAnswer = e.target.value;
                 });
             } else {
+                // Render diagram first if present (before MCQ options - "table below")
+                if (question.diagram && question.diagram.trim()) {
+                    renderDiagram(question.diagram, optionsContainer);
+                }
+                
                 // Create option buttons for MCQ
                 question.options.forEach((option, index) => {
                     const optionDiv = document.createElement('div');
